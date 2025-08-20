@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multi File Upload with Persistent Downloads</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            /* slate-900 */
+            --card: #111827;
+            /* gray-900 */
+            --muted: #94a3b8;
+            /* slate-400 */
+            --text: #e5e7eb;
+            /* gray-200 */
+            --primary: #22c55e;
+            /* green-500 */
+            --primary-600: #16a34a;
+            --ring: rgba(34, 197, 94, .35);
+            --danger: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial;
+            background: linear-gradient(180deg, #0b1022, #0f172a 20% 80%, #0b1022);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .app {
+            width: min(960px, 100%);
+        }
+
+        .card {
+            background: rgba(17, 24, 39, .75);
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(148, 163, 184, .18);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, .35);
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-weight: 700;
+            letter-spacing: .2px;
+        }
+
+        p.sub {
+            margin: 0 0 16px;
+            color: var(--muted);
+        }
+
+        .uploader {
+            margin-top: 16px;
+            border: 2px dashed rgba(148, 163, 184, .35);
+            border-radius: 16px;
+            padding: 22px;
+            text-align: center;
+            transition: border-color .2s, background .2s, box-shadow .2s;
+        }
+
+        .uploader.dragover {
+            border-color: var(--primary);
+            background: rgba(34, 197, 94, .06);
+            box-shadow: 0 0 0 4px var(--ring);
+        }
+
+        .uploader input[type="file"] {
+            display: none;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 0;
+            border-radius: 12px;
+            padding: 10px 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform .02s ease-in-out, background .2s;
+            background: var(--primary);
+            color: #07120a;
+        }
+
+        .btn:hover {
+            background: var(--primary-600);
+        }
+
+        .btn.secondary {
+            background: #1f2937;
+            color: #e5e7eb;
+            border: 1px solid #374151;
+        }
+
+        .btn.secondary:hover {
+            background: #111827;
+        }
+
+        .btn.danger {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .list {
+            margin-top: 22px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+        }
+
+        @media (min-width: 560px) {
+            .list {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (min-width: 900px) {
+            .list {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+        }
+
+        .item {
+            border: 1px solid rgba(148, 163, 184, .2);
+            border-radius: 16px;
+            padding: 14px;
+            background: rgba(2, 6, 23, .7);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .name {
+            font-weight: 600;
+            word-break: break-word;
+        }
+
+        .meta {
+            font-size: 12px;
+            color: var(--muted);
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 4px;
+        }
+
+        .empty {
+            text-align: center;
+            color: var(--muted);
+            padding: 28px 12px;
+            border: 1px dashed rgba(148, 163, 184, .25);
+            border-radius: 14px;
+        }
+    </style>
+</head>
+
+<body>
+    <main class="app">
+        <section class="card">
+            <h1>ZIP & File Uploader (Persistent)</h1>
+            <p class="sub">Multiple files upload karo. Niche <strong>pratyek file</strong> mate alag <em>Download</em>
+                ane <em>Delete</em> button dekhse. Page reload pachhi pan list <strong>save</strong> rehse.</p>
+
+            <div id="dropzone" class="uploader" tabindex="0" role="button"
+                aria-label="Upload files (drag & drop or click)">
+                <p style="margin:0 0 10px">Drag & Drop files here</p>
+                <div class="row">
+                    <label class="btn" for="fileInput">Choose Files</label>
+                    <button class="btn secondary" id="clearAllBtn" title="Remove all saved files">Clear All</button>
+                </div>
+                <input id="fileInput" type="file" multiple
+                    accept=".zip,.rar,.7z,.pdf,.png,.jpg,.jpeg,.svg,.webp,.txt,.csv,.xlsx,.doc,.docx,.ppt,.pptx,*/*" />
+            </div>
+
+            <div id="list" class="list" aria-live="polite"></div>
+            <div id="emptyState" class="empty" style="display:none">Koi file nathi. Upload karine start karo ↑</div>
+        </section>
+    </main>
+
+    <script>
+        // --- IndexedDB minimal helper ---
+        const DB_NAME = 'fileVaultDB';
+        const STORE = 'files';
+        const DB_VERSION = 1;
+
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(DB_NAME, DB_VERSION);
+                req.onupgradeneeded = () => {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains(STORE)) {
+                        const os = db.createObjectStore(STORE, { keyPath: 'id' });
+                        os.createIndex('by_name', 'name', { unique: false });
+                        os.createIndex('by_time', 'uploadedAt', { unique: false });
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        async function addFile(file) {
+            const db = await openDB();
+            const tx = db.transaction(STORE, 'readwrite');
+            const store = tx.objectStore(STORE);
+            const id = crypto.randomUUID();
+            const record = {
+                id,
+                name: file.name,
+                size: file.size,
+                type: file.type || 'application/octet-stream',
+                uploadedAt: Date.now(),
+                blob: file
+            };
+            await new Promise((res, rej) => { const r = store.add(record); r.onsuccess = () => res(); r.onerror = () => rej(r.error); });
+            await tx.done?.catch?.(() => { }); // Safari friendly
+            db.close();
+            return record;
+        }
+
+        async function getAll() {
+            const db = await openDB();
+            const tx = db.transaction(STORE, 'readonly');
+            const store = tx.objectStore(STORE);
+            const out = await new Promise((res, rej) => {
+                const items = [];
+                const req = store.openCursor(null, 'prev');
+                req.onsuccess = (e) => {
+                    const cursor = e.target.result;
+                    if (cursor) { items.push(cursor.value); cursor.continue(); }
+                    else res(items);
+                };
+                req.onerror = () => rej(req.error);
+            });
+            db.close();
+            return out;
+        }
+
+        async function remove(id) {
+            const db = await openDB();
+            const tx = db.transaction(STORE, 'readwrite');
+            await new Promise((res, rej) => { const r = tx.objectStore(STORE).delete(id); r.onsuccess = () => res(); r.onerror = () => rej(r.error); });
+            db.close();
+        }
+
+        async function clearAll() {
+            const db = await openDB();
+            const tx = db.transaction(STORE, 'readwrite');
+            await new Promise((res, rej) => { const r = tx.objectStore(STORE).clear(); r.onsuccess = () => res(); r.onerror = () => rej(r.error); });
+            db.close();
+        }
+
+        // --- UI Logic ---
+        const fileInput = document.getElementById('fileInput');
+        const listEl = document.getElementById('list');
+        const emptyState = document.getElementById('emptyState');
+        const dropzone = document.getElementById('dropzone');
+        const clearAllBtn = document.getElementById('clearAllBtn');
+
+        function fmtBytes(bytes) {
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let i = 0, num = bytes;
+            while (num >= 1024 && i < units.length - 1) { num /= 1024; i++; }
+            return `${num.toFixed(num < 10 && i > 0 ? 2 : 0)} ${units[i]}`;
+        }
+        function fmtDate(ts) {
+            const d = new Date(ts);
+            return d.toLocaleString();
+        }
+
+        function renderEmpty(show) { emptyState.style.display = show ? 'block' : 'none'; }
+
+        function fileCard(item) {
+            const wrap = document.createElement('div');
+            wrap.className = 'item';
+            wrap.innerHTML = `
+        <div class="name" title="${item.name}">📦 ${item.name}</div>
+        <div class="meta">
+          <span>${fmtBytes(item.size)}</span>
+          <span>•</span>
+          <span>${item.type || 'file'}</span>
+          <span>•</span>
+          <span>${fmtDate(item.uploadedAt)}</span>
+        </div>
+        <div class="actions">
+          <a class="btn" href="#" data-action="download">Download</a>
+          <button class="btn secondary" data-action="preview">Preview</button>
+          <button class="btn danger" data-action="delete">Delete</button>
+        </div>
+      `;
+
+            // Actions
+            wrap.querySelector('[data-action="download"]').addEventListener('click', (e) => {
+                e.preventDefault();
+                const url = URL.createObjectURL(item.blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = item.name || 'download';
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1500);
+            });
+
+            wrap.querySelector('[data-action="preview"]').addEventListener('click', () => {
+                const url = URL.createObjectURL(item.blob);
+                window.open(url, '_blank');
+                setTimeout(() => URL.revokeObjectURL(url), 30000);
+            });
+
+            wrap.querySelector('[data-action="delete"]').addEventListener('click', async () => {
+                await remove(item.id);
+                await reloadList();
+            });
+
+            return wrap;
+        }
+
+        async function reloadList() {
+            const all = await getAll();
+            listEl.innerHTML = '';
+            all.forEach(item => listEl.appendChild(fileCard(item)));
+            renderEmpty(all.length === 0);
+        }
+
+        async function handleFiles(files) {
+            for (const file of files) {
+                await addFile(file);
+            }
+            await reloadList();
+        }
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files?.length) { handleFiles(e.target.files); fileInput.value = ''; }
+        });
+
+        // Drag & drop
+        ['dragenter', 'dragover'].forEach(evt => {
+            dropzone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropzone.classList.add('dragover'); });
+        });
+        ['dragleave', 'drop'].forEach(evt => {
+            dropzone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('dragover'); });
+        });
+        dropzone.addEventListener('drop', (e) => {
+            const files = e.dataTransfer?.files;
+            if (files && files.length) { handleFiles(files); }
+        });
+
+        clearAllBtn.addEventListener('click', async () => {
+            if (confirm('Remove all saved files?')) { await clearAll(); await reloadList(); }
+        });
+
+        // Initial load
+        reloadList();
+    </script>
+</body>
+
+</html>
